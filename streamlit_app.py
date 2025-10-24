@@ -204,8 +204,24 @@ else:
 
                         df = pd.DataFrame(cum_values).set_index(pd.DatetimeIndex([r["date"] for r in cum_values]))
                         df.index.name = None
-                        st.line_chart(df["stars"])
+
+                        # 取得が途中で切れている（truncated）場合、表示が最大取得件数で平坦化することがある。
+                        # そのため、可能であればトップリポジトリ情報から実際のスター数を取得して最終値に反映する。
                         if sg.get("truncated"):
+                            # top_repos がスコープ内にあるはずなので、selected_repo 名で該当オブジェクトを探す
+                            repo_obj = None
+                            try:
+                                repo_obj = next((x for x in top_repos if (x.get("full_name") or x.get("name")) == selected_repo), None)
+                            except Exception:
+                                repo_obj = None
+
+                            if repo_obj:
+                                actual_total = repo_obj.get("stargazers_count") or None
+                                if actual_total and actual_total > int(df["stars"].iloc[-1]):
+                                    # 最終日の値を実際のスター数に合わせる
+                                    df.at[df.index[-1], "stars"] = actual_total
                             st.warning("注: 取得上限に達したため一部データのみを使用しています（最大1000件）。")
+
+                        st.line_chart(df["stars"])
 
 st.caption("データは GitHub のパブリックAPI を利用しています（レート制限あり）。")
