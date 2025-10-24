@@ -3,7 +3,7 @@ import json
 from urllib import request, error
 import pandas as pd
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # ページタイトルを設定
 st.set_page_config(page_title="俺得GitHub検索ツール")
@@ -14,7 +14,7 @@ API_BASE = "https://api.github.com"
 st.sidebar.header("俺得GitHub検索ツール")
 # ユーザー名は指定しない（要件）。キーワードで絞る。
 keyword = st.sidebar.text_input("キーワード（オプション）", value="")
-top_n = st.sidebar.slider("上位 N 件（スター順）", min_value=5, max_value=50, value=10)
+top_n = st.sidebar.slider("上位 N 件（スター順）", min_value=5, max_value=30, value=10)
 # 言語選択
 language = st.sidebar.selectbox("言語", options=["All", "Go", "Java", "Flutter", "Elixir"], index=0)
 # 検索はボタンでトリガー（初期ロードでデータを取らない）
@@ -169,25 +169,43 @@ else:
         if selected_repo and show_chart:
             with st.spinner("スター推移データを取得しています（最大1000件）..."):
                 sg = get_stargazer_dates(selected_repo, max_pages=10)
-            if isinstance(sg, dict) and "__error__" in sg:
-                st.error(f"データ取得エラー: {sg['__error__']}")
-            elif isinstance(sg, dict) and "dates" in sg:
-                dates = sg.get("dates", [])
-                if not dates:
-                    st.info("スター履歴が取得できませんでした（非公開またはデータ不足）。")
-                else:
-                    # 日付ごとのカウント -> 累積
-                    cnt = Counter(dates)
-                    sorted_dates = sorted(cnt.keys())
-                    cum = []
-                    total = 0
-                    for d in sorted_dates:
-                        total += cnt[d]
-                        cum.append({"date": d, "stars": total})
-                    df = pd.DataFrame(cum).set_index(pd.to_datetime(pd.Series([r["date"] for r in cum])))
-                    df.index.name = None
-                    st.line_chart(df["stars"])
-                    if sg.get("truncated"):
-                        st.warning("注: 取得上限に達したため一部データのみを使用しています（最大1000件）。")
+                if isinstance(sg, dict) and "__error__" in sg:
+                    st.error(f"データ取得エラー: {sg['__error__']}")
+                elif isinstance(sg, dict) and "dates" in sg:
+                    dates = sg.get("dates", [])
+                    if not dates:
+                        st.info("スター履歴が取得できませんでした（非公開またはデータ不足）。")
+                    else:
+                        # 過去5年を横軸にする（約5*365日）
+                        today = datetime.utcnow().date()
+                        cutoff = today - timedelta(days=5 * 365)
+
+                        # 日付ごとのカウント
+                        cnt = Counter(dates)
+
+                        # 総数のうち、cutoff より前のスターを初期値として計上
+                        total_before = 0
+                        for dstr, v in cnt.items():
+                            try:
+                                d = datetime.fromisoformat(dstr).date()
+                            except Exception:
+                                continue
+                            if d < cutoff:
+                                total_before += v
+
+                        # 日次で累積を作る（cutoff から today までの連続日付）
+                        days = [(cutoff + timedelta(days=i)) for i in range((today - cutoff).days + 1)]
+                        cum_values = []
+                        total = total_before
+                        for day in days:
+                            day_str = day.isoformat()
+                            total += cnt.get(day_str, 0)
+                            cum_values.append({"date": day, "stars": total})
+
+                        df = pd.DataFrame(cum_values).set_index(pd.DatetimeIndex([r["date"] for r in cum_values]))
+                        df.index.name = None
+                        st.line_chart(df["stars"])
+                        if sg.get("truncated"):
+                            st.warning("注: 取得上限に達したため一部データのみを使用しています（最大1000件）。")
 
 st.caption("データは GitHub のパブリックAPI を利用しています（レート制限あり）。")
