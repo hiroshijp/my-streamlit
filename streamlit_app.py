@@ -4,10 +4,14 @@ from urllib import request, error
 
 API_BASE = "https://api.github.com"
 
-st.sidebar.header("GitHub ユーザーを調べる")
-username = st.sidebar.text_input("ユーザー名", value="torvalds")
-show_repos = st.sidebar.checkbox("リポジトリ一覧を表示", value=True)
+st.sidebar.header("GitHub リポジトリ検索")
+# ユーザー名は指定しない（要件）。キーワードで絞る。
+keyword = st.sidebar.text_input("キーワード（オプション）", value="")
 top_n = st.sidebar.slider("上位 N 件（スター順）", min_value=5, max_value=50, value=10)
+# 言語選択
+language = st.sidebar.selectbox("言語", options=["All", "Go", "Java", "Flutter", "Elixir"], index=0)
+# 検索はボタンでトリガー（初期ロードでデータを取らない）
+do_search = st.sidebar.button("検索")
 # 言語選択（ユーザー指定）。"All" を追加してフィルタ無しを選べるようにする。
 language = st.sidebar.selectbox("言語", options=["All", "Go", "Java", "Flutter", "Elixir"], index=0)
 
@@ -22,12 +26,36 @@ def fetch_json(url):
     except Exception as e:
         return {"__error__": str(e)}
 
-def get_user(username):
-    return fetch_json(f"{API_BASE}/users/{username}")
 
-def get_repos(username):
-    # 最大100件取得（必要ならページネーションを追加）
-    return fetch_json(f"{API_BASE}/users/{username}/repos?per_page=100")
+def search_repos(keyword: str, language: str):
+    """
+    GitHub Search API を使ってリポジトリ検索を行う。
+    - stars:>=1000 を固定条件にする
+    - language が "All" の場合は言語条件を付けない
+    - Flutter は GitHub 上では language='Dart' になっているため内部でマップする
+    戻り値: list (items) または dict (エラー情報)
+    """
+    q_parts = []
+    # キーワードがあれば追加（複数ワードはそのままスペースでつなげてよい）
+    if keyword:
+        # 検索クエリでは空白は + にエンコードされるが fetch_json の URL に渡す際に置換する
+        q_parts.append(keyword)
+
+    # 言語マッピング
+    lang_map = {"Flutter": "Dart"}
+    if language and language != "All":
+        q_parts.append(f"language:{lang_map.get(language, language)}")
+
+    # スター数条件（要件で固定）
+    q_parts.append("stars:>=1000")
+
+    q = "+".join([p.replace(" ", "+") for p in q_parts])
+    url = f"{API_BASE}/search/repositories?q={q}&per_page=100"
+    data = fetch_json(url)
+    # data は dict で items を持つはず
+    if isinstance(data, dict) and "items" in data:
+        return data["items"]
+    return data
 
 st.markdown("## 🔎 GitHub ユーザー検索")
 if not username:
@@ -81,13 +109,16 @@ else:
                         match_lang = lang_map.get(language, language)
                         repos_list = [r for r in repos_list if (r.get("language") or "").lower() == match_lang.lower()]
 
+                    # 要件: star数1000以上に限定
+                    repos_list = [r for r in repos_list if r.get("stargazers_count", 0) >= 1000]
+
                     # スター順にソートして上位N件を表示
                     repos_sorted = sorted(repos_list, key=lambda r: r.get("stargazers_count", 0), reverse=True)
                     top_repos = repos_sorted[:top_n]
 
                     # 選択言語をサブヘッダーに表示
                     lang_label = language if language == "All" else f"{language}"
-                    st.subheader(f"⭐ Top {len(top_repos)} リポジトリ（スター順） — 言語: {lang_label}")
+                    st.subheader(f"⭐ Top {len(top_repos)} リポジトリ（スター順・⭐>=1000） — 言語: {lang_label}")
                     for r in top_repos:
                         name = r.get("name")
                         desc = r.get("description") or ""
