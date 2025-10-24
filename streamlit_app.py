@@ -12,8 +12,6 @@ top_n = st.sidebar.slider("上位 N 件（スター順）", min_value=5, max_val
 language = st.sidebar.selectbox("言語", options=["All", "Go", "Java", "Flutter", "Elixir"], index=0)
 # 検索はボタンでトリガー（初期ロードでデータを取らない）
 do_search = st.sidebar.button("検索")
-# 言語選択（ユーザー指定）。"All" を追加してフィルタ無しを選べるようにする。
-language = st.sidebar.selectbox("言語", options=["All", "Go", "Java", "Flutter", "Elixir"], index=0)
 
 @st.cache_data(ttl=300)
 def fetch_json(url):
