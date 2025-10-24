@@ -88,8 +88,7 @@ else:
         repos_sorted = sorted(repos_list, key=lambda r: r.get("stargazers_count", 0), reverse=True)
         top_repos = repos_sorted[:top_n]
 
-        lang_label = language if language == "All" else language
-        st.subheader(f"⭐ Top {len(top_repos)} リポジトリ（スター順・⭐>=1000） — 言語: {lang_label} — キーワード: {keyword or '（なし）'}")
+        st.subheader(f"⭐ Top {len(top_repos)} リポジトリ（スター順・⭐>=1000）")
         for r in top_repos:
             name = r.get("full_name") or r.get("name")
             desc = r.get("description") or ""
@@ -101,18 +100,5 @@ else:
             with st.expander(f"{name} — ⭐ {stars} — {lang}", expanded=False):
                 st.write(desc)
                 st.write(f"[リポジトリへ]({url})  ・  フォーク: {forks}  ・  更新: {updated}")
-
-        # 小さな表で簡易一覧
-        table_data = [
-            {
-                "name": f"[{r.get('full_name') or r.get('name')}]({r.get('html_url')})",
-                "desc": (r.get("description") or "")[:80],
-                "stars": r.get("stargazers_count", 0),
-                "lang": r.get("language") or "—",
-            }
-            for r in top_repos
-        ]
-        st.markdown("### 簡易一覧")
-        st.table(table_data)
 
 st.caption("データは GitHub のパブリックAPI を利用しています（レート制限あり）。")
