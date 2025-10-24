@@ -1,6 +1,9 @@
 import streamlit as st
 import json
 from urllib import request, error
+import pandas as pd
+from collections import Counter
+from datetime import datetime
 
 # ページタイトルを設定
 st.set_page_config(page_title="俺得GitHub検索ツール")
@@ -59,6 +62,54 @@ def search_repos(keyword: str, language: str):
         return data["items"]
     return data
 
+
+@st.cache_data(ttl=3600)
+def fetch_json_with_headers(url, headers=None):
+    req = request.Request(url, headers=headers or {"User-Agent": "streamlit-app"})
+    try:
+        with request.urlopen(req, timeout=20) as resp:
+            return json.load(resp)
+    except error.HTTPError as e:
+        return {"__error__": f"HTTPError: {e.code} {e.reason}"}
+    except Exception as e:
+        return {"__error__": str(e)}
+
+
+@st.cache_data(ttl=3600)
+def get_stargazer_dates(full_name: str, max_pages: int = 10):
+    """指定リポジトリの stargazers を取得し、starred_at の日付リストを返す。
+    max_pages * 100 件を上限とする（デフォルト1000件）。
+    使用する Accept ヘッダー: application/vnd.github.v3.star+json
+    戻り値: dict -> {"dates": [...], "truncated": bool} またはエラー dict
+    """
+    owner_repo = full_name
+    headers = {"User-Agent": "streamlit-app", "Accept": "application/vnd.github.v3.star+json"}
+    starred_dates = []
+    for page in range(1, max_pages + 1):
+        url = f"{API_BASE}/repos/{owner_repo}/stargazers?per_page=100&page={page}"
+        data = fetch_json_with_headers(url, headers=headers)
+        if isinstance(data, dict) and "__error__" in data:
+            return data
+        if not isinstance(data, list):
+            break
+        if not data:
+            break
+        for item in data:
+            # each item has 'starred_at' and 'user' when using the star+json media type
+            sa = item.get("starred_at")
+            if sa:
+                # normalize to date
+                try:
+                    d = datetime.fromisoformat(sa.replace("Z", "+00:00")).date()
+                    starred_dates.append(d.isoformat())
+                except Exception:
+                    continue
+    truncated = False
+    # If we hit max_pages and last page was full, consider truncated
+    if len(starred_dates) >= max_pages * 100:
+        truncated = True
+    return {"dates": starred_dates, "truncated": truncated}
+
 st.markdown("## 俺得GitHub検索ツール")
 
 # 検索はボタンでトリガーする。検索結果は session_state に保持する。
@@ -92,6 +143,15 @@ else:
         repos_sorted = sorted(repos_list, key=lambda r: r.get("stargazers_count", 0), reverse=True)
         top_repos = repos_sorted[:top_n]
 
+        # サイドバーに選択用のリストを表示（トップ結果から選べる）
+        repo_options = [r.get("full_name") or r.get("name") for r in top_repos]
+        if repo_options:
+            selected_repo = st.sidebar.selectbox("対象リポジトリ（グラフ化）", options=repo_options, key="selected_repo")
+            show_chart = st.sidebar.button("スター推移を表示", key="show_chart")
+        else:
+            selected_repo = None
+            show_chart = False
+
         st.subheader(f"⭐ Top {len(top_repos)} リポジトリ（スター順・⭐>=1000）")
         for r in top_repos:
             name = r.get("full_name") or r.get("name")
@@ -104,5 +164,30 @@ else:
             with st.expander(f"{name} — ⭐ {stars} — {lang}", expanded=False):
                 st.write(desc)
                 st.write(f"[リポジトリへ]({url})  ・  フォーク: {forks}  ・  更新: {updated}")
+
+        # スター推移グラフの表示
+        if selected_repo and show_chart:
+            with st.spinner("スター推移データを取得しています（最大1000件）..."):
+                sg = get_stargazer_dates(selected_repo, max_pages=10)
+            if isinstance(sg, dict) and "__error__" in sg:
+                st.error(f"データ取得エラー: {sg['__error__']}")
+            elif isinstance(sg, dict) and "dates" in sg:
+                dates = sg.get("dates", [])
+                if not dates:
+                    st.info("スター履歴が取得できませんでした（非公開またはデータ不足）。")
+                else:
+                    # 日付ごとのカウント -> 累積
+                    cnt = Counter(dates)
+                    sorted_dates = sorted(cnt.keys())
+                    cum = []
+                    total = 0
+                    for d in sorted_dates:
+                        total += cnt[d]
+                        cum.append({"date": d, "stars": total})
+                    df = pd.DataFrame(cum).set_index(pd.to_datetime(pd.Series([r["date"] for r in cum])))
+                    df.index.name = None
+                    st.line_chart(df["stars"])
+                    if sg.get("truncated"):
+                        st.warning("注: 取得上限に達したため一部データのみを使用しています（最大1000件）。")
 
 st.caption("データは GitHub のパブリックAPI を利用しています（レート制限あり）。")
