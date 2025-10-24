@@ -2,9 +2,13 @@ import streamlit as st
 import json
 from urllib import request, error
 
+# ページタイトルを設定
+st.set_page_config(page_title="俺得GitHub検索ツール")
+
 API_BASE = "https://api.github.com"
 
-st.sidebar.header("GitHub リポジトリ検索")
+# サイドバー見出しをアプリタイトルに変更
+st.sidebar.header("俺得GitHub検索ツール")
 # ユーザー名は指定しない（要件）。キーワードで絞る。
 keyword = st.sidebar.text_input("キーワード（オプション）", value="")
 top_n = st.sidebar.slider("上位 N 件（スター順）", min_value=5, max_value=50, value=10)
@@ -55,7 +59,7 @@ def search_repos(keyword: str, language: str):
         return data["items"]
     return data
 
-st.markdown("## 🔎 GitHub リポジトリ検索")
+st.markdown("## 俺得GitHub検索ツール")
 
 # 検索はボタンでトリガーする。検索結果は session_state に保持する。
 if 'search_results' not in st.session_state:
